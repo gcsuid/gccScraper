@@ -3,10 +3,7 @@ import pandas as pd
 import ast
 import re
 import json
-import os
-
-from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
+import ollama
 
 # =====================================================
 # CONFIG
@@ -15,18 +12,7 @@ from huggingface_hub import InferenceClient
 INPUT_CSV = "linkedin_posts.csv"
 OUTPUT_CSV = "sanitised_gcc_leads.csv"
 
-load_dotenv()
-
-HF_TOKEN = os.getenv("HF_TOKEN")
-
-if not HF_TOKEN:
-    raise ValueError("HF_TOKEN not found in .env")
-
-MODEL = "deepseek-ai/DeepSeek-V4-Pro:novita"
-
-client = InferenceClient(
-    api_key=HF_TOKEN
-)
+OLLAMA_MODEL = "qwen2.5:3b"
 
 INDIAN_GCC_CITIES = [
     "Hyderabad",
@@ -48,7 +34,6 @@ INDIAN_GCC_CITIES = [
     "Mangaluru"
 ]
 
-
 # =====================================================
 # COMPANY EXTRACTION
 # =====================================================
@@ -64,10 +49,8 @@ def extract_company(content_attributes, content):
 
                 company = item.get("company", {})
 
-                name = company.get("name")
-
-                if name:
-                    return name
+                if company.get("name"):
+                    return company["name"]
 
     except Exception:
         pass
@@ -146,28 +129,31 @@ def extract_names_from_attributes(content_attributes):
 
 
 # =====================================================
-# HF FALLBACK
+# OLLAMA FALLBACK
 # =====================================================
 
-def hf_extract_names(content):
+def ollama_extract_names(content):
 
     prompt = f"""
-Extract only HUMAN names from the LinkedIn post below.
+Extract only HUMAN PERSON NAMES from this LinkedIn post.
 
 Rules:
-1. Return only people names.
-2. Ignore company names.
-3. Ignore city names.
-4. Ignore hashtags.
-5. Ignore GCC names.
-6. Ignore organization names.
+- Return only people names.
+- Ignore companies.
+- Ignore locations.
+- Ignore hashtags.
+- Ignore GCC names.
+- Ignore organizations.
 
-Return valid JSON only.
+Return ONLY JSON.
 
-Format:
+Example:
 
 {{
-  "names": []
+  "names": [
+    "Rohit Gupta",
+    "Sriniketh Chakravarthi"
+  ]
 }}
 
 Post:
@@ -177,19 +163,17 @@ Post:
 
     try:
 
-        response = client.chat.completions.create(
-            model=MODEL,
+        response = ollama.chat(
+            model=OLLAMA_MODEL,
             messages=[
                 {
                     "role": "user",
                     "content": prompt
                 }
-            ],
-            temperature=0,
-            max_tokens=300
+            ]
         )
 
-        output = response.choices[0].message.content.strip()
+        output = response["message"]["content"]
 
         match = re.search(
             r"\{.*\}",
@@ -211,8 +195,7 @@ Post:
             name = str(name).strip()
 
             if (
-                name
-                and len(name) > 2
+                len(name) > 2
                 and name not in cleaned
             ):
                 cleaned.append(name)
@@ -221,32 +204,37 @@ Post:
 
     except Exception as e:
 
-        print(f"HF extraction failed: {e}")
+        print(f"Ollama extraction failed: {e}")
 
         return []
 
 
 # =====================================================
-# MAIN
+# MAIN PROCESSING
 # =====================================================
 
 def process_csv():
 
+    print(f"\nLoading {INPUT_CSV}...")
+
     df = pd.read_csv(INPUT_CSV)
+
+    total_rows = len(df)
+
+    print(f"Found {total_rows} posts\n")
 
     output_rows = []
 
-    total = len(df)
-
-    print(f"\nLoaded {total} posts\n")
-
     for index, row in df.iterrows():
 
-        print(f"[{index + 1}/{total}] Processing...")
+        print(f"[{index + 1}/{total_rows}] Processing")
 
         content = str(row.get("content", ""))
 
-        content_attributes = row.get("contentAttributes", "")
+        content_attributes = row.get(
+            "contentAttributes",
+            ""
+        )
 
         company = extract_company(
             content_attributes,
@@ -273,11 +261,12 @@ def process_csv():
 
         if not names:
 
-            print("   No PROFILE_MENTION found -> Using HF")
+            print("   No PROFILE_MENTION found")
+            print("   Using Ollama...")
 
-            names = hf_extract_names(content)
+            names = ollama_extract_names(content)
 
-            source = "hf_extracted"
+            source = "ollama_qwen"
 
         output_rows.append(
             {
@@ -299,11 +288,11 @@ def process_csv():
         encoding="utf-8-sig"
     )
 
-    print("\n================================")
+    print("\n====================================")
     print("Completed")
-    print(f"Rows saved : {len(output_df)}")
-    print(f"Output     : {OUTPUT_CSV}")
-    print("================================")
+    print(f"Rows Processed : {len(output_df)}")
+    print(f"Saved To       : {OUTPUT_CSV}")
+    print("====================================")
 
 
 # =====================================================
@@ -311,4 +300,5 @@ def process_csv():
 # =====================================================
 
 if __name__ == "__main__":
+
     process_csv()
