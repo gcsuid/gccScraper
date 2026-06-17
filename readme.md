@@ -9,3 +9,4 @@ The goal of this application is to identify which **Global Capability Centers (G
 - The final CSV contains:
   - Company name
   - Name of the person who runs the company
+  - also any insights you can gain about the company.
