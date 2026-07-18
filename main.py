@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 from datetime import datetime, timezone
@@ -65,13 +66,66 @@ def load_existing_dataframe(path):
     return pd.read_csv(path)
 
 
+def pick_smoke_candidate(df):
+    if df.empty:
+        return df
+
+    preferred = df.copy()
+
+    if "contentAttributes" in preferred.columns:
+        content_attributes = preferred["contentAttributes"].fillna("").astype(str)
+        preferred = preferred[
+            content_attributes.str.contains("PROFILE_MENTION", regex=False)
+            | content_attributes.str.contains("COMPANY_NAME", regex=False)
+        ]
+
+    if preferred.empty:
+        preferred = df
+
+    return preferred.head(1).copy()
+
+
+def validate_smoke_output(smoke_row):
+    required_fields = ["company", "location", "linkedin_url"]
+    missing_fields = [field for field in required_fields if not str(smoke_row.get(field, "")).strip()]
+
+    if missing_fields:
+        raise ValueError(
+            f"Smoke test failed. Missing extracted fields: {', '.join(missing_fields)}"
+        )
+
+
+def run_smoke_test():
+    raw_df = load_existing_dataframe(RAW_CSV)
+    if raw_df.empty:
+        raise ValueError(f"Smoke test requires cached raw data in {RAW_CSV}.")
+
+    smoke_input_df = pick_smoke_candidate(raw_df)
+    smoke_output_df = sanitize_dataframe(smoke_input_df)
+
+    if smoke_output_df.empty:
+        raise ValueError("Smoke test failed. Sanitizer returned no rows.")
+
+    smoke_row = smoke_output_df.iloc[0].to_dict()
+    validate_smoke_output(smoke_row)
+
+    print("\n====================================")
+    print("Smoke test passed")
+    print(f"Company      : {smoke_row['company']}")
+    print(f"Location     : {smoke_row['location']}")
+    print(f"Person Names : {smoke_row.get('person_names', '')}")
+    print(f"Source       : {smoke_row.get('source', '')}")
+    print(f"LinkedIn URL : {smoke_row['linkedin_url']}")
+    print("====================================")
+
+
 def fetch_posts(client):
     run_input = {
         "targetUrls": [
             "https://www.linkedin.com/company/gcc-marketwatch/",
             "https://www.linkedin.com/company/et-gcc/",
         ],
-        "maxPosts": 600,
+        "maxPosts": 10,
         "includeQuotePosts": True,
         "includeReposts": False,
         "scrapeReactions": False,
@@ -169,7 +223,23 @@ def determine_next_watermark(state, new_posts_df):
     return max(parsed_dates).isoformat().replace("+00:00", "Z")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Run a fast local smoke test against cached raw data.",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+
+    if args.smoke:
+        run_smoke_test()
+        return
+
     load_dotenv()
     apify_token = os.getenv("APIFY_TOKEN")
 
