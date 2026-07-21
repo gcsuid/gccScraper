@@ -1,13 +1,16 @@
 import ast
+import difflib
 import json
+import os
 import re
 
-import ollama
 import pandas as pd
+from ollama import Client
 
 INPUT_CSV = "linkedin_posts.csv"
 OUTPUT_CSV = "sanitised_gcc_leads.csv"
-OLLAMA_MODEL = "qwen2.5:3b"
+OLLAMA_CLOUD_HOST = "https://ollama.com"
+OLLAMA_CLOUD_MODEL = os.getenv("OLLAMA_CLOUD_MODEL", "gpt-oss:120b")
 
 INDIAN_GCC_CITIES = [
     "Hyderabad",
@@ -88,6 +91,30 @@ def extract_names_from_attributes(content_attributes):
     return sorted(set(names))
 
 
+def get_ollama_cloud_client():
+    """Return a client for Ollama's hosted API, never the local Ollama server."""
+    api_key = os.getenv("OLLAMA_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "OLLAMA_API_KEY not found. Create an Ollama API key and add it to .env. "
+            "This project is configured to use Ollama Cloud only."
+        )
+
+    return Client(
+        host=OLLAMA_CLOUD_HOST,
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+
+def cloud_chat(messages):
+    return get_ollama_cloud_client().chat(
+        model=OLLAMA_CLOUD_MODEL,
+        messages=messages,
+        stream=False,
+        options={"temperature": 0},
+    )["message"]["content"]
+
+
 def ollama_extract_names(content):
     prompt = f"""
 Extract only HUMAN PERSON NAMES from this LinkedIn post.
@@ -117,11 +144,7 @@ Post:
 """
 
     try:
-        response = ollama.chat(
-            model=OLLAMA_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        output = response["message"]["content"]
+        output = cloud_chat([{"role": "user", "content": prompt}])
         match = re.search(r"\{.*\}", output, re.DOTALL)
         if not match:
             return []
@@ -162,9 +185,9 @@ def sanitize_dataframe(df):
 
         if not names:
             print("   No PROFILE_MENTION found")
-            print("   Using Ollama...")
+            print(f"   Using Ollama Cloud ({OLLAMA_CLOUD_MODEL})...")
             names = ollama_extract_names(content)
-            source = "ollama_qwen"
+            source = f"ollama_cloud:{OLLAMA_CLOUD_MODEL}"
 
         output_rows.append(
             {
@@ -180,6 +203,89 @@ def sanitize_dataframe(df):
         )
 
     return pd.DataFrame(output_rows)
+
+
+def normalize_company_name(value):
+    """Create a conservative comparison key without changing the stored company name."""
+    text = str(value or "").casefold().strip()
+    text = re.sub(r"\b(incorporated|inc|corp|corporation|limited|ltd|llc|plc|pvt|private)\b", "", text)
+    return re.sub(r"[^a-z0-9]", "", text)
+
+
+def _company_match_candidates(company, existing_companies, limit=5):
+    normalized = normalize_company_name(company)
+    if not normalized:
+        return []
+
+    exact = [name for name in existing_companies if normalize_company_name(name) == normalized]
+    if exact:
+        return exact[:limit]
+
+    choices = {
+        normalize_company_name(name): name
+        for name in existing_companies
+        if normalize_company_name(name)
+    }
+    similar_keys = difflib.get_close_matches(normalized, choices.keys(), n=limit, cutoff=0.72)
+    return [choices[key] for key in similar_keys]
+
+
+def find_company_replacements(incoming_df, existing_df):
+    """Use one Cloud request to confirm only plausible company-name matches.
+
+    Local normalization narrows the candidate list first, which keeps cloud cost and
+    prompt size bounded. Exact normalized matches are retained as a safe fallback if
+    the network/model response is unavailable.
+    """
+    if incoming_df.empty or existing_df.empty or "company" not in incoming_df or "company" not in existing_df:
+        return set()
+
+    existing_companies = existing_df["company"].fillna("").astype(str).tolist()
+    checks = []
+    exact_matches = set()
+    for incoming_index, company in incoming_df["company"].fillna("").astype(str).items():
+        candidates = _company_match_candidates(company, existing_companies)
+        if not candidates:
+            continue
+        if any(normalize_company_name(company) == normalize_company_name(candidate) for candidate in candidates):
+            exact_matches.add(incoming_index)
+        checks.append({"incoming_index": incoming_index, "incoming_company": company, "candidates": candidates})
+
+    if not checks:
+        return set()
+
+    prompt = """You verify company-name duplicates in GCC lead data. For each item, decide whether the
+incoming company is the SAME company as one of its candidates. Treat legal-suffix and punctuation
+differences as the same. Do not treat partners, customers, subsidiaries, or similarly named companies
+as the same. Return ONLY JSON in this form:
+{\"matches\": [{\"incoming_index\": 0, \"existing_company\": \"Example Inc\"}]}.
+Every existing_company must be copied exactly from that item's candidates.\n\nChecks:\n"""
+
+    try:
+        output = cloud_chat([{"role": "user", "content": prompt + json.dumps(checks)}])
+        match = re.search(r"\{.*\}", output, re.DOTALL)
+        if not match:
+            raise ValueError("Cloud response did not contain JSON")
+        verified = json.loads(match.group()).get("matches", [])
+        allowed_candidates = {
+            (item["incoming_index"], candidate)
+            for item in checks
+            for candidate in item["candidates"]
+        }
+        return {
+            (int(item["incoming_index"]), str(item["existing_company"]))
+            for item in verified
+            if (int(item["incoming_index"]), str(item["existing_company"])) in allowed_candidates
+        }
+    except Exception as error:
+        print(f"Ollama Cloud company verification failed: {error}. Using exact-name matches only.")
+        return {
+            (index, candidate)
+            for index, company in incoming_df["company"].fillna("").astype(str).items()
+            for candidate in existing_companies
+            if index in exact_matches
+            and normalize_company_name(company) == normalize_company_name(candidate)
+        }
 
 
 def process_csv(input_csv=INPUT_CSV, output_csv=OUTPUT_CSV):

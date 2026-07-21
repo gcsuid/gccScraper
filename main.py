@@ -8,7 +8,7 @@ import pandas as pd
 from apify_client import ApifyClient
 from dotenv import load_dotenv
 
-from sanity import sanitize_dataframe
+from sanity import find_company_replacements, sanitize_dataframe
 
 RAW_CSV = Path("linkedin_posts.csv")
 SANITIZED_CSV = Path("sanitised_gcc_leads.csv")
@@ -190,16 +190,35 @@ def dedupe_sanitized_posts(incoming_df, existing_df):
 
     if "post_id" in combined.columns:
         valid_ids = combined["post_id"] != ""
-        deduped_ids = combined[valid_ids].drop_duplicates(subset=["post_id"], keep="first")
+        deduped_ids = combined[valid_ids].drop_duplicates(subset=["post_id"], keep="last")
         no_ids = combined[~valid_ids]
         combined = pd.concat([deduped_ids, no_ids], ignore_index=True, sort=False)
 
     if "linkedin_url" in combined.columns:
-        combined = combined.drop_duplicates(subset=["linkedin_url"], keep="first")
+        combined = combined.drop_duplicates(subset=["linkedin_url"], keep="last")
     else:
         combined = combined.drop_duplicates(keep="first")
 
     return combined
+
+
+def replace_existing_company_records(incoming_df, existing_df):
+    """Keep the newest incoming lead when Ollama Cloud confirms the company already exists."""
+    replacements = find_company_replacements(incoming_df, existing_df)
+    if not replacements:
+        return existing_df, 0
+
+    from sanity import normalize_company_name
+
+    # Remove the actual confirmed candidate, rather than every company similar to it.
+    normalized_replacements = {
+        normalize_company_name(existing_company)
+        for _, existing_company in replacements
+    }
+    retained_existing = existing_df[
+        ~existing_df["company"].fillna("").map(normalize_company_name).isin(normalized_replacements)
+    ].copy()
+    return retained_existing, len(existing_df) - len(retained_existing)
 
 
 def determine_next_watermark(state, new_posts_df):
@@ -242,9 +261,14 @@ def main():
 
     load_dotenv()
     apify_token = os.getenv("APIFY_TOKEN")
+    ollama_api_key = os.getenv("OLLAMA_API_KEY")
 
     if not apify_token:
         raise ValueError("APIFY_TOKEN not found in .env file")
+    if not ollama_api_key:
+        raise ValueError(
+            "OLLAMA_API_KEY not found in .env file. This pipeline uses Ollama Cloud directly."
+        )
 
     state = load_state()
 
@@ -303,7 +327,10 @@ def main():
 
     sanitized_new_df = sanitize_dataframe(truly_new_df)
     existing_sanitized_df = load_existing_dataframe(SANITIZED_CSV)
-    updated_sanitized_df = dedupe_sanitized_posts(sanitized_new_df, existing_sanitized_df)
+    retained_sanitized_df, replaced_company_count = replace_existing_company_records(
+        sanitized_new_df, existing_sanitized_df
+    )
+    updated_sanitized_df = dedupe_sanitized_posts(sanitized_new_df, retained_sanitized_df)
 
     updated_raw_df.to_csv(RAW_CSV, index=False, encoding="utf-8-sig")
     updated_sanitized_df.to_csv(SANITIZED_CSV, index=False, encoding="utf-8-sig")
@@ -318,6 +345,7 @@ def main():
     print(f"New unique raw rows : {len(truly_new_df)}")
     print(f"Raw rows total      : {len(updated_raw_df)}")
     print(f"Sanitized rows total: {len(updated_sanitized_df)}")
+    print(f"Company rows replaced: {replaced_company_count}")
     print(f"Watermark saved     : {state['last_processed_post_date']}")
     print("====================================")
 
