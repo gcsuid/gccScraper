@@ -52,3 +52,4 @@ Reason:
 - A GitHub-hosted runner would need either a remote LLM/API replacement or a self-hosted runner with Ollama installed
 
 If you later replace local Ollama with an API call, then moving to GitHub Actions becomes reasonable.
+heheh
