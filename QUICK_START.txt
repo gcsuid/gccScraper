@@ -1,0 +1,119 @@
+====================================================================
+DAILY LEADS SELECTOR - QUICK START GUIDE
+====================================================================
+
+GOAL: Get 5 GCC leads emailed to you daily at 8 PM
+
+====================================================================
+WHAT HAPPENS EACH DAY:
+====================================================================
+1. At 8 PM - Script runs automatically (via Windows Task Scheduler)
+2. Selects 5 new unprocessed companies
+3. Marks them "YES" in the 'sent' column
+4. Sends you an email with all 5 leads
+5. Saves as: sanitised_gcc_leads_marked.csv
+
+====================================================================
+SETUP IN 4 STEPS (15 minutes total)
+====================================================================
+
+STEP 1: Gmail App Password (5 min)
+  → Go to: https://myaccount.google.com/apppasswords
+  → Generate 16-char password for "Mail" & "Windows Computer"
+  → Copy the password (example: abcd efgh ijkl mnop)
+
+STEP 2: Create .env file (2 min)
+  → Create file named: .env
+  → Add your Gmail credentials:
+    
+    SMTP_SERVER=smtp.gmail.com
+    SMTP_PORT=587
+    EMAIL_ADDRESS=your.email@gmail.com
+    EMAIL_PASSWORD=abcdefghijklmnop
+    RECIPIENT_EMAIL=your.email@gmail.com
+
+  → Save in: C:\Users\KIIT\Desktop\personal_project\sweetPython\gccScraper\
+
+STEP 3: Test the script (2 min)
+  → Open PowerShell
+  → Run:
+    cd "C:\Users\KIIT\Desktop\personal_project\sweetPython\gccScraper"
+    python daily_leads.py
+  → You should see: "[EMAIL] Successfully sent to..."
+
+STEP 4: Schedule in Windows Task Scheduler (5 min)
+  → Press: Win + R
+  → Type: taskschd.msc
+  → Click: Create Task
+  → Fill in:
+    - Name: Daily GCC Leads Email
+    - Triggers: Daily at 20:00 (8 PM)
+    - Actions: Start program → python.exe
+    - Arguments: daily_leads.py
+    - Working directory: C:\Users\KIIT\Desktop\personal_project\sweetPython\gccScraper
+  → Click OK
+
+====================================================================
+VERIFY IT WORKS
+====================================================================
+
+Option A: Wait until 8 PM (automatic)
+Option B: Manual test right now:
+  1. Open Task Scheduler
+  2. Find "Daily GCC Leads Email"
+  3. Right-click → Run
+  4. Check email in 30 seconds
+
+====================================================================
+FILES YOU'LL USE
+====================================================================
+
+daily_leads.py               ← Main script (runs daily)
+.env                         ← Your credentials (SECRET - don't share)
+leads_tracking.json          ← Auto-created, tracks sent leads
+sanitised_gcc_leads_marked.csv ← Marked with "YES" for sent leads
+
+====================================================================
+IF SOMETHING GOES WRONG
+====================================================================
+
+Email not sending?
+  → Check .env file is in correct folder
+  → Check EMAIL_PASSWORD has no spaces (remove them!)
+  → Make sure 2FA enabled on Gmail
+  → Check junk/spam folder
+
+Task not running at 8 PM?
+  → Computer must be ON at 8 PM
+  → Check Task Scheduler → double-click task → verify trigger time
+  → Right-click task → Run to test manually
+
+====================================================================
+NEED TO CHANGE SOMETHING?
+====================================================================
+
+Change send time from 8 PM?
+  → Task Scheduler → Edit trigger → Change time
+
+Use Outlook instead of Gmail?
+  → Edit .env:
+    SMTP_SERVER=smtp-mail.outlook.com
+    SMTP_PORT=587
+    EMAIL_ADDRESS=your.email@outlook.com
+
+Get 10 leads instead of 5?
+  → Edit daily_leads.py line: get_daily_leads(count=10)
+
+Reset and start over?
+  → Delete leads_tracking.json
+
+====================================================================
+DOCUMENT LOCATION
+====================================================================
+
+Full setup guide: SETUP_TASK_SCHEDULER.md
+This file: QUICK_START.txt
+Script: daily_leads.py
+Credentials template: .env.example
+
+====================================================================
