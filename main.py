@@ -8,7 +8,7 @@ import pandas as pd
 from apify_client import ApifyClient
 from dotenv import load_dotenv
 
-from sanity import find_company_replacements, sanitize_dataframe
+from sanity import sanitize_dataframe
 
 RAW_CSV = Path("linkedin_posts.csv")
 SANITIZED_CSV = Path("sanitised_gcc_leads.csv")
@@ -234,6 +234,10 @@ def merge_company_records(df):
     from sanity import normalize_company_name
 
     working = df.copy()
+    working["company"] = working["company"].fillna("").astype(str).str.strip()
+    working = working[working["company"] != ""].copy()
+    if working.empty:
+        return df.iloc[0:0].copy()
     working["_company_key"] = working["company"].fillna("").map(normalize_company_name)
     working["_post_dt"] = working.get("post_date", pd.Series(dtype="object")).apply(
         parse_utc_timestamp
@@ -266,25 +270,6 @@ def merge_company_records(df):
         merged_rows.append(row)
 
     return pd.DataFrame(merged_rows, columns=df.columns.drop(["_company_key", "_post_dt"], errors="ignore"))
-
-
-def replace_existing_company_records(incoming_df, existing_df):
-    """Keep the newest incoming lead when Ollama Cloud confirms the company already exists."""
-    replacements = find_company_replacements(incoming_df, existing_df)
-    if not replacements:
-        return existing_df, 0
-
-    from sanity import normalize_company_name
-
-    # Remove the actual confirmed candidate, rather than every company similar to it.
-    normalized_replacements = {
-        normalize_company_name(existing_company)
-        for _, existing_company in replacements
-    }
-    retained_existing = existing_df[
-        ~existing_df["company"].fillna("").map(normalize_company_name).isin(normalized_replacements)
-    ].copy()
-    return retained_existing, len(existing_df) - len(retained_existing)
 
 
 def determine_next_watermark(state, new_posts_df):
@@ -380,11 +365,12 @@ def main():
 
     sanitized_new_df = sanitize_dataframe(truly_new_df)
     existing_sanitized_df = load_existing_dataframe(SANITIZED_CSV)
-    retained_sanitized_df, replaced_company_count = replace_existing_company_records(
-        sanitized_new_df, existing_sanitized_df
+    combined_sanitized_df = pd.concat(
+        [existing_sanitized_df, sanitized_new_df],
+        ignore_index=True,
+        sort=False,
     )
-    updated_sanitized_df = dedupe_sanitized_posts(sanitized_new_df, retained_sanitized_df)
-    updated_sanitized_df = merge_company_records(updated_sanitized_df)
+    updated_sanitized_df = merge_company_records(combined_sanitized_df)
 
     updated_raw_df.to_csv(RAW_CSV, index=False, encoding="utf-8-sig")
     updated_sanitized_df.to_csv(SANITIZED_CSV, index=False, encoding="utf-8-sig")
@@ -399,7 +385,7 @@ def main():
     print(f"New unique raw rows : {len(truly_new_df)}")
     print(f"Raw rows total      : {len(updated_raw_df)}")
     print(f"Sanitized rows total: {len(updated_sanitized_df)}")
-    print(f"Company rows replaced: {replaced_company_count}")
+    print("Lead uniqueness key  : normalized company name")
     print(f"Watermark saved     : {state['last_processed_post_date']}")
     print("====================================")
 

@@ -11,9 +11,11 @@ The goal of this application is to identify which **Global Capability Centers (G
   - Name of the person who runs the company
   - also any insights you can gain about the company.
 
-The pipeline updates the existing CSV files only. It keeps one row per
-normalized company, appends new companies, and combines unique person names
-from later posts into the existing company's `person_names` cell.
+The pipeline updates the existing CSV files only. The sanitized lead file uses
+the normalized company name as its only lead uniqueness key: it keeps one row
+per company, appends only new companies, and combines unique person names from
+later posts into the existing company's `person_names` cell. Post IDs and URLs
+are used only to avoid reprocessing the same raw source post.
 
 ## Current Run Flow
 
