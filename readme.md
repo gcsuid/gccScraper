@@ -45,13 +45,18 @@ This project uses Ollama's hosted API directly; it does **not** start or call a 
    ```env
    APIFY_TOKEN=...
    OLLAMA_API_KEY=...
-   # Optional; defaults to gpt-oss:120b
-   OLLAMA_CLOUD_MODEL=gpt-oss:120b
+   # Free-plan starter candidate; keep this configurable
+   OLLAMA_CLOUD_MODEL=gemma4:31b
    ```
 
 2. Run `python main.py` (or `./run_pipeline.ps1`).
 
 For each batch of new posts, metadata is extracted first. Where names are absent, Ollama Cloud extracts them. Before writing, the pipeline sends only plausible company-name matches to Ollama Cloud for verification. A verified incoming company removes the older company row, then the newer record is written. Exact normalized names remain a safe fallback if the cloud request fails.
+
+Ollama Free includes limited monthly usage for a smaller set of starter
+models; it is not unlimited cloud inference. `gemma4:31b` is configured as the
+default smaller starter candidate, but the available models and quota are
+controlled by Ollama. Check the Ollama usage page if a run is rejected.
 
 ## GitHub Actions automation
 

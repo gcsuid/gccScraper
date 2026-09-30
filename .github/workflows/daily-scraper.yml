@@ -20,7 +20,7 @@ jobs:
       LINKEDIN_TARGET_URLS: https://www.linkedin.com/company/gcc-marketwatch/,https://www.linkedin.com/company/et-gcc/
       APIFY_INITIAL_MAX_POSTS: "100"
       APIFY_MAX_POSTS: "20"
-      OLLAMA_CLOUD_MODEL: gpt-oss:120b
+      OLLAMA_CLOUD_MODEL: gemma4:31b
 
     steps:
       - name: Check out repository

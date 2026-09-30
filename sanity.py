@@ -10,7 +10,7 @@ from ollama import Client
 INPUT_CSV = "linkedin_posts.csv"
 OUTPUT_CSV = "sanitised_gcc_leads.csv"
 OLLAMA_CLOUD_HOST = "https://ollama.com"
-OLLAMA_CLOUD_MODEL = os.getenv("OLLAMA_CLOUD_MODEL", "gpt-oss:120b")
+OLLAMA_CLOUD_MODEL = os.getenv("OLLAMA_CLOUD_MODEL", "gemma4:31b")
 
 INDIAN_GCC_CITIES = [
     "Hyderabad",
