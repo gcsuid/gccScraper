@@ -181,19 +181,28 @@ def filter_incremental_posts(df, last_processed_post_date):
 
 
 def dedupe_raw_posts(incoming_df, existing_df):
-    combined = pd.concat([existing_df, incoming_df], ignore_index=True, sort=False)
+    if incoming_df.empty:
+        return existing_df.copy()
 
-    if "id" in combined.columns:
-        combined["id"] = combined["id"].astype(str).str.strip()
-        combined = combined[combined["id"] != ""]
-        combined = combined.drop_duplicates(subset=["id"], keep="first")
-    elif "linkedinUrl" in combined.columns:
-        combined["linkedinUrl"] = combined["linkedinUrl"].astype(str).str.strip()
-        combined = combined.drop_duplicates(subset=["linkedinUrl"], keep="first")
+    incoming = incoming_df.copy()
+    existing = existing_df.copy()
+
+    if "id" in incoming.columns:
+        incoming["id"] = incoming["id"].fillna("").astype(str).str.strip()
+        if "id" in existing.columns:
+            existing_ids = set(existing["id"].fillna("").astype(str).str.strip())
+            incoming = incoming[~incoming["id"].isin(existing_ids | {""})]
+        incoming = incoming.drop_duplicates(subset=["id"], keep="first")
+    elif "linkedinUrl" in incoming.columns:
+        incoming["linkedinUrl"] = incoming["linkedinUrl"].fillna("").astype(str).str.strip()
+        if "linkedinUrl" in existing.columns:
+            existing_urls = set(existing["linkedinUrl"].fillna("").astype(str).str.strip())
+            incoming = incoming[~incoming["linkedinUrl"].isin(existing_urls | {""})]
+        incoming = incoming.drop_duplicates(subset=["linkedinUrl"], keep="first")
     else:
-        combined = combined.drop_duplicates(keep="first")
+        incoming = incoming.drop_duplicates(keep="first")
 
-    return combined
+    return pd.concat([existing, incoming], ignore_index=True, sort=False)
 
 
 def dedupe_sanitized_posts(incoming_df, existing_df):
@@ -360,27 +369,14 @@ def main():
     existing_raw_df = load_existing_dataframe(RAW_CSV)
     updated_raw_df = dedupe_raw_posts(incremental_df, existing_raw_df)
 
-    existing_count = len(existing_raw_df)
-    updated_count = len(updated_raw_df)
-    new_unique_count = updated_count - existing_count
-
-    if new_unique_count <= 0:
+    if len(updated_raw_df) <= len(existing_raw_df):
         print("All incremental rows were already present in the raw dataset.")
         state["last_checked_at"] = utc_now_iso()
         state["last_successful_run_at"] = utc_now_iso()
         save_state(state)
         return
 
-    if "id" in existing_raw_df.columns:
-        existing_ids = set(existing_raw_df["id"].astype(str))
-        truly_new_df = incremental_df[~incremental_df["id"].astype(str).isin(existing_ids)].copy()
-    elif "linkedinUrl" in existing_raw_df.columns:
-        existing_urls = set(existing_raw_df["linkedinUrl"].astype(str))
-        truly_new_df = incremental_df[
-            ~incremental_df["linkedinUrl"].astype(str).isin(existing_urls)
-        ].copy()
-    else:
-        truly_new_df = incremental_df.copy()
+    truly_new_df = updated_raw_df.iloc[len(existing_raw_df):].copy()
 
     sanitized_new_df = sanitize_dataframe(truly_new_df)
     existing_sanitized_df = load_existing_dataframe(SANITIZED_CSV)
