@@ -1,0 +1,50 @@
+name: Daily GCC scraper
+
+on:
+  schedule:
+    # 20:00 IST (UTC+05:30) = 14:30 UTC.
+    - cron: "30 14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      APIFY_ACTOR_ID: harvestapi/linkedin-profile-posts
+      LINKEDIN_TARGET_URLS: https://www.linkedin.com/company/gcc-marketwatch/,https://www.linkedin.com/company/et-gcc/
+      APIFY_INITIAL_MAX_POSTS: "100"
+      APIFY_MAX_POSTS: "20"
+      OLLAMA_CLOUD_MODEL: gpt-oss:120b
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run data-only scraper
+        run: python main.py
+
+      - name: Commit updated scraper data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add linkedin_posts.csv sanitised_gcc_leads.csv state.json
+          if git diff --cached --quiet; then
+            echo "No data changes to commit."
+          else
+            git commit -m "Update GCC scraper data"
+            git push
+          fi

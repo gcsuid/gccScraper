@@ -11,9 +11,17 @@ The goal of this application is to identify which **Global Capability Centers (G
   - Name of the person who runs the company
   - also any insights you can gain about the company.
 
+The pipeline updates the existing CSV files only. It keeps one row per
+normalized company, appends new companies, and combines unique person names
+from later posts into the existing company's `person_names` cell.
+
 ## Current Run Flow
 
 Run `python main.py`.
+
+This is the data-only command. It does not send email. Do not run
+`daily_leads.py` unless you later want the separate daily selection/email
+feature.
 
 The pipeline now:
 
@@ -23,6 +31,10 @@ The pipeline now:
 - De-duplicates against existing stored rows using source-level identifiers such as `id` and `linkedinUrl`
 - Sanitizes only the truly new rows
 - Updates `state.json` only after the CSV writes succeed
+- Reads `LINKEDIN_TARGET_URLS` and `APIFY_MAX_POSTS` from `.env`
+- Uses `APIFY_INITIAL_MAX_POSTS` for the first import, then `APIFY_MAX_POSTS` daily
+- Updates `linkedin_posts.csv` and `sanitised_gcc_leads.csv`
+- Does not require SMTP or email settings
 
 ## Ollama Cloud setup
 
@@ -41,15 +53,10 @@ This project uses Ollama's hosted API directly; it does **not** start or call a 
 
 For each batch of new posts, metadata is extracted first. Where names are absent, Ollama Cloud extracts them. Before writing, the pipeline sends only plausible company-name matches to Ollama Cloud for verification. A verified incoming company removes the older company row, then the newer record is written. Exact normalized names remain a safe fallback if the cloud request fails.
 
-## Automation Recommendation
+## GitHub Actions automation
 
-Use **Windows Task Scheduler** first, not GitHub-hosted Actions.
-
-Reason:
-
-- Your sanitization step depends on an Ollama Cloud API key
-- `state.json` is local runtime state, which fits machine scheduling cleanly
-- A GitHub-hosted runner would need either a remote LLM/API replacement or a self-hosted runner with Ollama installed
-
-If you later replace local Ollama with an API call, then moving to GitHub Actions becomes reasonable.
+`.github/workflows/daily-scraper.yml` runs the data-only scraper daily at
+20:00 IST (14:30 UTC) and can also be started manually. It commits updated
+`linkedin_posts.csv`, `sanitised_gcc_leads.csv`, and `state.json` back to the
+repository so the watermark persists between temporary GitHub runners.
 heheh

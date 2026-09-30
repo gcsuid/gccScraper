@@ -119,13 +119,25 @@ def run_smoke_test():
     print("====================================")
 
 
-def fetch_posts(client):
+def fetch_posts(client, initial_import=False):
+    target_urls = [
+        url.strip()
+        for url in os.getenv("LINKEDIN_TARGET_URLS", "").replace(";", ",").replace("\n", ",").split(",")
+        if url.strip()
+    ]
+    if not target_urls:
+        raise ValueError(
+            "LINKEDIN_TARGET_URLS not found. Add comma- or newline-separated LinkedIn URLs to .env."
+        )
+
     run_input = {
-        "targetUrls": [
-            "https://www.linkedin.com/company/gcc-marketwatch/",
-            "https://www.linkedin.com/company/et-gcc/",
-        ],
-        "maxPosts": 10,
+        "targetUrls": target_urls,
+        "maxPosts": int(
+            os.getenv(
+                "APIFY_INITIAL_MAX_POSTS" if initial_import else "APIFY_MAX_POSTS",
+                "100" if initial_import else "20",
+            )
+        ),
         "includeQuotePosts": True,
         "includeReposts": False,
         "scrapeReactions": False,
@@ -135,10 +147,13 @@ def fetch_posts(client):
     }
 
     print("Starting actor...")
-    run = client.actor("A3cAPGpwBEG8RJwse").call(run_input=run_input)
-    print(f"Run finished: {run['id']}")
+    actor_id = os.getenv("APIFY_ACTOR_ID", "harvestapi/linkedin-profile-posts")
+    run = client.actor(actor_id).call(run_input=run_input)
+    run_id = getattr(run, "id", None) or run["id"]
+    dataset_id = getattr(run, "default_dataset_id", None) or run["defaultDatasetId"]
+    print(f"Run finished: {run_id}")
 
-    dataset = client.dataset(run["defaultDatasetId"])
+    dataset = client.dataset(dataset_id)
     records = list(dataset.iterate_items())
 
     if not records:
@@ -200,6 +215,48 @@ def dedupe_sanitized_posts(incoming_df, existing_df):
         combined = combined.drop_duplicates(keep="first")
 
     return combined
+
+
+def merge_company_records(df):
+    """Return one row per company while combining all unique people and posts."""
+    if df.empty or "company" not in df.columns:
+        return df
+
+    from sanity import normalize_company_name
+
+    working = df.copy()
+    working["_company_key"] = working["company"].fillna("").map(normalize_company_name)
+    working["_post_dt"] = working.get("post_date", pd.Series(dtype="object")).apply(
+        parse_utc_timestamp
+    )
+
+    merged_rows = []
+    for company_key, group in working.groupby("_company_key", sort=False, dropna=False):
+        if not company_key:
+            merged_rows.extend(group.drop(columns=["_company_key", "_post_dt"]).to_dict("records"))
+            continue
+
+        group = group.sort_values("_post_dt", ascending=False, na_position="last")
+        row = group.iloc[0].drop(labels=["_company_key", "_post_dt"]).to_dict()
+
+        people = []
+        for value in group.get("person_names", pd.Series(dtype="object")).fillna(""):
+            for person in str(value).split(";"):
+                person = " ".join(person.split()).strip()
+                if person and person.casefold() not in {item.casefold() for item in people}:
+                    people.append(person)
+        row["person_names"] = "; ".join(people)
+
+        for field in ["company", "location", "post_date", "source", "linkedin_url", "content"]:
+            if not str(row.get(field, "") or "").strip():
+                for value in group[field].fillna("") if field in group else []:
+                    if str(value).strip():
+                        row[field] = value
+                        break
+
+        merged_rows.append(row)
+
+    return pd.DataFrame(merged_rows, columns=df.columns.drop(["_company_key", "_post_dt"], errors="ignore"))
 
 
 def replace_existing_company_records(incoming_df, existing_df):
@@ -276,7 +333,7 @@ def main():
     print(json.dumps(state, indent=2))
 
     client = ApifyClient(apify_token)
-    fetched_df = fetch_posts(client)
+    fetched_df = fetch_posts(client, initial_import=not state.get("last_processed_post_date"))
 
     if fetched_df.empty:
         print("No records returned by the scraper.")
@@ -331,6 +388,7 @@ def main():
         sanitized_new_df, existing_sanitized_df
     )
     updated_sanitized_df = dedupe_sanitized_posts(sanitized_new_df, retained_sanitized_df)
+    updated_sanitized_df = merge_company_records(updated_sanitized_df)
 
     updated_raw_df.to_csv(RAW_CSV, index=False, encoding="utf-8-sig")
     updated_sanitized_df.to_csv(SANITIZED_CSV, index=False, encoding="utf-8-sig")

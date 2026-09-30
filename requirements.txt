@@ -1,0 +1,4 @@
+pandas
+apify-client
+python-dotenv
+ollama
