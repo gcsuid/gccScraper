@@ -35,6 +35,8 @@ The pipeline now:
 - Updates `state.json` only after the CSV writes succeed
 - Reads `LINKEDIN_TARGET_URLS` and `APIFY_MAX_POSTS` from `.env`
 - Uses `APIFY_INITIAL_MAX_POSTS` for the first import, then `APIFY_MAX_POSTS` daily
+- Limits the first import to `APIFY_INITIAL_POSTED_LIMIT_DATE`; daily runs have no
+  historical date window and rely on `state.json`
 - Updates `linkedin_posts.csv` and `sanitised_gcc_leads.csv`
 - Does not require SMTP or email settings
 
@@ -66,4 +68,8 @@ controlled by Ollama. Check the Ollama usage page if a run is rejected.
 20:00 IST (14:30 UTC) and can also be started manually. It commits updated
 `linkedin_posts.csv`, `sanitised_gcc_leads.csv`, and `state.json` back to the
 repository so the watermark persists between temporary GitHub runners.
+
+For the first manual run, the workflow requests up to 500 posts per source
+published since `2026-06-30T00:00:00Z` (the last three months relative to
+2026-09-30). Later scheduled runs use a limit of 20 posts per source.
 heheh

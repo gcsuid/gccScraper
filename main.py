@@ -138,6 +138,11 @@ def fetch_posts(client, initial_import=False):
                 "100" if initial_import else "20",
             )
         ),
+        "postedLimitDate": (
+            os.getenv("APIFY_INITIAL_POSTED_LIMIT_DATE")
+            if initial_import
+            else None
+        ),
         "includeQuotePosts": True,
         "includeReposts": False,
         "scrapeReactions": False,

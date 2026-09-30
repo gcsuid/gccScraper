@@ -18,7 +18,8 @@ jobs:
       OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
       APIFY_ACTOR_ID: harvestapi/linkedin-profile-posts
       LINKEDIN_TARGET_URLS: https://www.linkedin.com/company/gcc-marketwatch/,https://www.linkedin.com/company/et-gcc/
-      APIFY_INITIAL_MAX_POSTS: "100"
+      APIFY_INITIAL_MAX_POSTS: "500"
+      APIFY_INITIAL_POSTED_LIMIT_DATE: "2026-06-30T00:00:00Z"
       APIFY_MAX_POSTS: "20"
       OLLAMA_CLOUD_MODEL: gemma4:31b
 
