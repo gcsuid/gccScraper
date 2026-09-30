@@ -69,7 +69,8 @@ controlled by Ollama. Check the Ollama usage page if a run is rejected.
 `linkedin_posts.csv`, `sanitised_gcc_leads.csv`, and `state.json` back to the
 repository so the watermark persists between temporary GitHub runners.
 
-For the first manual run, the workflow requests up to 500 posts per source
-published since `2026-06-30T00:00:00Z` (the last three months relative to
-2026-09-30). Later scheduled runs use a limit of 20 posts per source.
+To trigger it manually, open **Actions → Daily GCC scraper → Run workflow**.
+Choose `backfill` for a date-limited catch-up, or `daily` for the normal
+20-post-per-source run. The backfill date and post limit are editable in the
+same GitHub form. Scheduled runs automatically use daily mode.
 heheh

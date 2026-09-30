@@ -327,12 +327,15 @@ def main():
         )
 
     state = load_state()
+    run_mode = os.getenv("SCRAPER_RUN_MODE", "auto").strip().lower()
+    force_backfill = run_mode == "backfill"
+    initial_import = force_backfill or not state.get("last_processed_post_date")
 
     print("Current state")
     print(json.dumps(state, indent=2))
 
     client = ApifyClient(apify_token)
-    fetched_df = fetch_posts(client, initial_import=not state.get("last_processed_post_date"))
+    fetched_df = fetch_posts(client, initial_import=initial_import)
 
     if fetched_df.empty:
         print("No records returned by the scraper.")
@@ -341,9 +344,13 @@ def main():
         save_state(state)
         return
 
-    incremental_df = filter_incremental_posts(
-        fetched_df,
-        state.get("last_processed_post_date"),
+    incremental_df = (
+        fetched_df
+        if force_backfill
+        else filter_incremental_posts(
+            fetched_df,
+            state.get("last_processed_post_date"),
+        )
     )
 
     print(f"Fetched rows      : {len(fetched_df)}")
